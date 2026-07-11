@@ -1,0 +1,20 @@
+# SigNoz Foundry casting file for the observability lab.
+#
+# Deploys SigNoz via Docker Compose with the SigNoz MCP server enabled.
+# Applied automatically on the EC2 instance by terraform/user_data.sh.tpl:
+#   foundryctl cast -f casting.yaml
+#
+# After the cast completes, mint a SigNoz API key (Settings -> API Keys in
+# the SigNoz UI) and point an MCP client at http://<instance>:8000/mcp
+# (reachable via SSH tunnel by default; see README).
+apiVersion: v1alpha1
+kind: Installation
+metadata:
+  name: signoz
+spec:
+  deployment:
+    mode: docker
+    flavor: compose
+  mcp:
+    spec:
+      enabled: true
