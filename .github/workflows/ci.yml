@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  fmt:
+    name: terraform fmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.5.7"
+      - run: terraform fmt -check -diff -recursive
+
+  validate:
+    name: terraform validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.5.7"
+      - run: terraform -chdir=terraform init -backend=false
+      - run: terraform -chdir=terraform validate
+
+  tflint:
+    name: tflint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: terraform-linters/setup-tflint@v4
+        with:
+          tflint_version: latest
+      - run: tflint --init
+        working-directory: terraform
+        env:
+          # avoids GitHub rate limits when downloading the ruleset plugin
+          GITHUB_TOKEN: ${{ github.token }}
+      - run: tflint --format compact
+        working-directory: terraform
