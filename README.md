@@ -68,6 +68,18 @@ SSH commands. First boot takes ~5 minutes; follow along with:
 ssh -i My-key.pem ubuntu@<public_ip> 'tail -f /var/log/signoz-lab-bootstrap.log'
 ```
 
+### CI and local checks
+
+Every push and pull request runs CI (`.github/workflows/ci.yml`):
+`terraform fmt -check`, `terraform validate`, and `tflint`.
+
+Run the same checks locally on each commit via [pre-commit](https://pre-commit.com):
+
+```bash
+pre-commit install                       # one-time hook setup
+tflint --init --chdir=terraform          # one-time ruleset download
+```
+
 ## Network access
 
 The security group admits **only your IP** (auto-detected via
