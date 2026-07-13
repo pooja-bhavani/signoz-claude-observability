@@ -2,7 +2,8 @@
 
 Deep-dive documentation for the SigNoz observability lab. The README covers
 day-to-day usage; this document covers every resource, the security model,
-data flows, known failure modes, and a disaster-recovery runbook.
+data flows, known failure modes, a disaster-recovery runbook, monthly cost
+estimation, and a CIS-mapped security-hardening checklist.
 
 **Design intent:** this is a single-instance, single-tenant *lab*, optimized
 for one-command reproducibility and teardown — not availability or
@@ -408,7 +409,118 @@ beforehand.
 
 ---
 
-## 8. Known limitations (accepted)
+## 8. Cost estimation
+
+On-demand pricing, **us-east-1**, 730 hours/month, as of July 2026. Other
+regions differ by ±5–25%; re-check at
+[aws.amazon.com/ec2/pricing](https://aws.amazon.com/ec2/pricing/on-demand/)
+or [instances.vantage.sh](https://instances.vantage.sh/aws/ec2/t3.large)
+before budgeting.
+
+### 8.1 Always-on baseline (default variables)
+
+| Line item | Unit price | Monthly |
+|---|---|---:|
+| EC2 `t3.large` (2 vCPU, 8 GiB), on-demand | $0.0832/hr | $60.74 |
+| EBS root volume, gp3, 40 GiB | $0.08/GiB-mo | $3.20 |
+| Public IPv4 address (while running) | $0.005/hr | $3.65 |
+| Data transfer **in** (OTLP ingest) | free | $0.00 |
+| Data transfer **out**, first 100 GB/mo | free tier | $0.00 |
+| **Baseline total** | | **≈ $67.59/mo** (~$2.22/day, ~$0.093/hr) |
+
+The security group, AMI lookup, and default-VPC networking are free. gp3's
+included 3,000 IOPS / 125 MB/s baseline is not exceeded by a lab workload,
+so no provisioned-performance charges apply.
+
+### 8.2 Variable and situational costs
+
+| Item | Price | When it bites |
+|---|---|---|
+| t3 surplus CPU credits (`unlimited` mode default) | $0.05 per vCPU-hour above baseline | Sustained load above the ~30%/vCPU baseline; worst case (both vCPUs pegged 24/7) adds ≈ $51/mo — at which point a fixed-rate instance is cheaper (see 8.3) |
+| Data transfer out beyond 100 GB/mo | $0.09/GB | Heavy UI/API querying from outside AWS; rare for one user |
+| EBS snapshots (DR runbook §7.6) | $0.05/GB-mo (standard tier) | Each retained snapshot of the 40 GiB volume: ≤ $2.00/mo (first is full, rest incremental) |
+| Bigger disk (§7.5) | $0.08/GiB-mo | 80 GiB → $6.40/mo instead of $3.20 |
+| Stopped (not destroyed) instance | EBS only | Stopping halts instance + IPv4 charges but keeps paying for the volume: ≈ $3.20/mo idle |
+
+### 8.3 Cost levers
+
+| Change | New compute cost | Trade-off |
+|---|---:|---|
+| `make destroy` when not in use (the intended pattern) | $0 | 5-minute rebuild, telemetry lost — this is the design (§7.1); 8 hrs/day × 22 days ≈ **$16/mo** total |
+| `-var instance_type=t3a.large` | $54.90/mo | AMD, ~10% cheaper, same credit model |
+| `-var instance_type=m7i.large` | $73.58/mo | No burst credits — predictable under sustained ingest (§5.6) |
+| 1-yr Compute Savings Plan | ≈ –30–40% | Only sensible if the lab becomes permanent, which contradicts its design |
+| Spot | ≈ –60–70% | Interruption destroys the lab mid-session; poor fit even for a lab you're actively using |
+
+**Rule of thumb:** left running 24/7 the lab costs about **$68/month**; used
+as designed (apply for a session, destroy after) it costs **a few dollars a
+month**. The single most effective cost control in this repo is
+`make destroy`.
+
+---
+
+## 9. Security-hardening checklist (CIS-mapped)
+
+Current posture vs. hardened posture, mapped to CIS benchmark controls.
+Benchmarks referenced: **CIS AWS Foundations Benchmark v3.0**, **CIS Ubuntu
+Linux 22.04 LTS Benchmark v2.0**, **CIS Docker Benchmark v1.6** — control
+numbers shift between benchmark revisions, so treat the numbers as pointers
+and the control titles as authoritative. ✅ = already satisfied by this repo,
+⚠️ = gap (acceptable for the lab, listed with the concrete fix).
+
+### 9.1 AWS account & network layer (CIS AWS Foundations v3.0)
+
+| # | Item | CIS control | Status |
+|---|---|---|---|
+| 1 | No ingress from `0.0.0.0/0` to admin ports — SG admits a single `/32` on 22/8080/4317/4318(/8000) | §5.2 / §5.3 *(no ingress from 0.0.0.0/0 or ::/0 to remote server administration ports)* | ✅ enforced in `main.tf`; degraded only if the operator passes a broad `allowed_cidr` — consider a `validation` block rejecting prefixes shorter than `/24` |
+| 2 | Require IMDSv2 on the instance | §5.6 *(ensure EC2 Metadata Service only allows IMDSv2)* | ⚠️ `main.tf` sets no `metadata_options`. Low risk here (no IAM role → no credentials to steal), but the fix is 4 lines: `metadata_options { http_tokens = "required" http_put_response_hop_limit = 1 }` |
+| 3 | Encrypt the EBS root volume at rest | §2.2.1 *(ensure EBS volume encryption is enabled)* | ⚠️ add `encrypted = true` to `root_block_device` (or enable account-level EBS encryption-by-default); forces instance replacement once |
+| 4 | No IAM instance profile / least privilege | §1.x IAM family | ✅ deliberately none (§3) — an instance compromise yields zero AWS API access |
+| 5 | No hardcoded/long-lived credentials in code or state | §1.4 *(no root access keys)*, secure-credential hygiene family | ✅ provider uses ambient credentials; state contains no secrets; `.gitignore` blocks `*.tfvars`/`*.pem` |
+| 6 | CloudTrail enabled in all regions | §3.1 | ⚠️ account-level, outside this repo — verify once per account |
+| 7 | VPC Flow Logs on the default VPC | §3.7 *(VPC flow logging enabled in all VPCs)* | ⚠️ not managed here; add an `aws_flow_log` + CloudWatch log group (~$1–3/mo) if you need network forensics |
+| 8 | Default security group of the VPC restricts all traffic | §5.4 | ⚠️ account-level; the lab uses its own SG, but the default SG should still be closed |
+| 9 | Billing/usage alarms & metric filters | §4.x monitoring family | ⚠️ account-level; a $20 budget alert also catches a forgotten lab (§8) |
+| 10 | Restrict egress to what bootstrap needs | (beyond CIS baseline) | ⚠️ egress is `0.0.0.0/0`; could be narrowed to 443/80 + DNS — diminishing returns for a lab |
+
+### 9.2 Instance / OS layer (CIS Ubuntu 22.04 LTS v2.0)
+
+| # | Item | CIS control | Status |
+|---|---|---|---|
+| 11 | SSH: key-only auth, no passwords | §5.1.x SSH server family *(disable PasswordAuthentication)* | ✅ Ubuntu AMI default |
+| 12 | SSH: `PermitRootLogin no`, limit to `AllowUsers ubuntu`, `MaxAuthTries 4` | §5.1.x SSH server family | ⚠️ AMI defaults are close but not asserted; add an sshd drop-in to `user_data.sh.tpl` |
+| 13 | Host firewall (ufw) as second layer behind the SG | §4.x host firewall family | ⚠️ not configured. **Caution:** Docker bypasses ufw INPUT rules for published ports by design — if added, use it for SSH rate-limiting, not as the container perimeter |
+| 14 | Unattended security updates | §1.x *(ensure updates, patches, and additional security software are installed)* | ⚠️ `unattended-upgrades` is present on Ubuntu but not asserted; one `dpkg-reconfigure` line in user_data. Note the instance is replaced (fresh AMI) on every config change anyway (§5.4), which caps patch staleness |
+| 15 | auditd / process accounting | §6.x logging & auditing family | ⚠️ skipped — meaningful only if you'd actually review the logs; the lab's forensic story is "destroy and rebuild" |
+| 16 | Time synchronization | §2.x *(ensure time synchronization is in use)* | ✅ systemd-timesyncd on the AMI; correct timestamps matter for an observability stack |
+
+### 9.3 Docker & workload layer (CIS Docker v1.6)
+
+| # | Item | CIS control | Status |
+|---|---|---|---|
+| 17 | Only trusted users control the Docker daemon | §1.x host configuration *(ensure only trusted users are allowed to control Docker daemon)* | ⚠️ `usermod -aG docker ubuntu` makes `ubuntu` root-equivalent. Accepted for a single-operator lab; the alternative is `sudo docker` everywhere |
+| 18 | Docker daemon not exposed on TCP | §2.x daemon configuration | ✅ default unix socket only; no `-H tcp://` anywhere |
+| 19 | Pin images by digest / verify content trust | §4.x container images *(content trust, trusted base images)* | ⚠️ Foundry pulls whatever tags the casting resolves to; pinning lives upstream in SigNoz Foundry, not this repo |
+| 20 | Container resource limits (memory/CPU) | §5.x runtime | ⚠️ compose file is generated by `foundryctl`; unbounded ClickHouse memory is the practical risk (§5.6) |
+| 21 | Verify piped installers (get.docker.com, foundry.sh) | supply-chain hygiene (outside CIS) | ⚠️ both piped to root shell over HTTPS, unpinned (§3); hardening = vendor the scripts into the repo at a reviewed commit and checksum them |
+
+### 9.4 Application layer (SigNoz — outside CIS scope)
+
+| # | Item | Status |
+|---|---|---|
+| 22 | Strong admin password set on first UI login | ⚠️ operator discipline; the UI is IP-restricted but unauthenticated ingest/queries within `allowed_cidr` are possible until the account exists |
+| 23 | MCP server reached only via SSH tunnel (`open_mcp_port=false`) | ✅ default; flipping the flag makes the API key the sole auth layer (§3) |
+| 24 | Rotate/scope SigNoz API keys; treat them as secrets | ⚠️ keys live in ClickHouse on the instance and die with it (§5.4) — rotation is largely enforced by the rebuild cycle |
+| 25 | TLS in front of UI/OTLP (reverse proxy + ACM/Let's Encrypt) | ⚠️ everything is plaintext (§3); acceptable only behind the `/32`. First step if this ever outlives "lab" status |
+
+**Priority order if hardening beyond lab scope:** #2 IMDSv2 and #3 EBS
+encryption (cheap, in-repo, no operational cost) → #22 admin password +
+#25 TLS (biggest real-world exposure) → #21 vendored installers (supply
+chain) → the account-level items (#6–#9) once, per account.
+
+---
+
+## 10. Known limitations (accepted)
 
 Single instance, single AZ, no HA, no TLS, no auth in front of OTLP beyond
 the SG, no automated backups, unpinned AMI/installers/images, local
