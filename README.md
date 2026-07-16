@@ -5,7 +5,7 @@ observability stack on AWS EC2, deployed with
 [SigNoz Foundry](https://github.com/SigNoz/foundry) and its `casting.yaml`,
 with the SigNoz MCP server enabled.
 
-<img width="1468" height="884" alt="image" src="https://github.com/user-attachments/assets/781f366a-1546-43ac-bd44-955a35638c93" />
+<img width="1257" height="679" alt="Screenshot 2026-07-16 at 10 22 38 PM" src="https://github.com/user-attachments/assets/fbebb92a-ffd4-4a31-a88e-313e397fd86d" />
 
 ## Architecture
 
