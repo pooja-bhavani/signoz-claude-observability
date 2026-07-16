@@ -2,7 +2,7 @@
 
 End-to-end observability setup: self-hosted SigNoz on EC2, monitoring Claude Code AI assistant telemetry (metrics + costs), plus a two-service Flask app generating distributed traces and logs.
 
-<img width="1257" height="679" alt="Screenshot 2026-07-16 at 10 22 38 PM" src="https://github.com/user-attachments/assets/fbebb92a-ffd4-4a31-a88e-313e397fd86d" />
+<img width="1469" height="882" alt="Screenshot 2026-07-16 at 10 33 53 PM" src="https://github.com/user-attachments/assets/d91d84d2-a2bd-468a-b660-3fc853ff100b" />
 
 ## What this project does
 
