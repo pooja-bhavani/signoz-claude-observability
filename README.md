@@ -12,27 +12,26 @@ with the SigNoz MCP server enabled.
 ```
                       your machine (allowed_cidr only)
                         │
-        ┌───────────────┼──────────────────┬──────────────┐
-        │ :22 SSH       │ :8080 SigNoz UI  │ :4317 OTLP gRPC
-        │               │                  │ :4318 OTLP HTTP
-        ▼               ▼                  ▼
-┌─────────────────────────────────────────────────────────────┐
-│  AWS EC2 · t3.large · Ubuntu 22.04 · 40 GiB gp3             │
-│  Security group: 22/8080/4317/4318 from your IP only        │
-│                                                             │
-│   user_data (first boot):                                   │
-│     1. install Docker            (get.docker.com)           │
-│     2. install foundryctl        (signoz.io/foundry.sh)     │
-│     3. foundryctl cast -f casting.yaml                      │
-│                                                             │
-│   ┌── Docker Compose (cast from casting.yaml) ───────────┐  │
-│   │                                                      │  │
-│   │  otel-collector ──▶ ClickHouse ◀── SigNoz UI :8080   │  │
-│   │   :4317 / :4318         ▲                            │  │
-│   │                         │                            │  │
-│   │  MCP server :8000 ──────┘   (SSH tunnel by default)  │  │
-│   └──────────────────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────────────┘
+        ┌───────────────┼──────────────────┬───────────────────┐
+        │ :22 SSH       │ :8080 SigNoz UI  │ OTLP / HTTP :4318 │
+        ▼               ▼                  ▼                   │
+┌──────────────────────────────────────────────────────────────┐
+│  Security group: 22/8080/4318/8000 from your IP only         │
+│                                                              │
+│   user_data (first boot):                                    │
+│     1. install Docker            (get.docker.com)            │
+│     2. install foundryctl        (signoz.io/foundry.sh)      │
+│     3. foundryctl cast -f casting.yaml                       │
+│                                                              │
+│   ┌── Docker Compose (cast from casting.yaml) ────────────┐  │
+│   │                                                       │  │
+│   │  otel-collector ──▶ ClickHouse ◀── SigNoz UI :8080    │  │
+│   │   OTLP / HTTP :4318       ▲                           │  │
+│   │                            │                          │  │
+│   │  MCP server ───────────────┘                          │  │
+│   │  <public_ip>:8000 · AI-queryable telemetry            │  │
+│   └───────────────────────────────────────────────────────┘  │
+└──────────────────────────────────────────────────────────────┘
 ```
 
 Everything the instance runs is derived from two files in this repo:
